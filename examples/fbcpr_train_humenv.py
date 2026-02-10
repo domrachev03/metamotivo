@@ -215,7 +215,7 @@ class Workspace:
         print("Starting training")
         progb = tqdm(total=self.cfg.num_env_steps)
         td, info = train_env.reset()
-        done = np.zeros(self.cfg.online_parallel_envs, dtype=np.bool)
+        done = np.zeros(self.cfg.online_parallel_envs, dtype=bool)
         total_metrics, context = None, None
         start_time = time.time()
         fps_start_time = time.time()
