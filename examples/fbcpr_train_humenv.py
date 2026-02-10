@@ -94,6 +94,9 @@ class TrainConfig:
     prioritization_max_val: float = 5
     prioritization_scale: float = 2
 
+    # humanoid model
+    humanoid_type: str = "smpl"
+
     # WANDB
     use_wandb: bool = False
     wandb_ename: str | None = None
@@ -200,6 +203,7 @@ class Workspace:
             motion_base_path=self.cfg.motions_root,
             fall_prob=0.2,
             state_init="MoCapAndFall",
+            humanoid_type=self.cfg.humanoid_type,
         )
 
         print("Allocating buffers")
@@ -344,7 +348,7 @@ class Workspace:
         )
         reward_eval = RewardEvaluation(
             tasks=self.cfg.reward_eval_tasks,
-            env_kwargs={"state_init": "Fall", "context": "spawn"},
+            env_kwargs={"state_init": "Fall", "context": "spawn", "humanoid_type": self.cfg.humanoid_type},
             num_contexts=1,
             num_envs=self.cfg.reward_eval_num_envs,
             num_episodes=self.cfg.reward_eval_num_eval_episodes,
@@ -379,6 +383,7 @@ class Workspace:
             motion_base_path=self.cfg.tracking_eval_motions_root,
             env_kwargs={
                 "state_init": "Default",
+                "humanoid_type": self.cfg.humanoid_type,
             },
             num_envs=self.cfg.tracking_eval_num_envs,
         )
@@ -420,6 +425,7 @@ if __name__ == "__main__":
         wrappers=[gymnasium.wrappers.FlattenObservation],
         render_width=320,
         render_height=320,
+        humanoid_type=config.humanoid_type,
     )
 
     agent_config = FBcprAgentConfig()
