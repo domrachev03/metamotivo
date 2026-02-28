@@ -57,7 +57,7 @@ def set_seed_everywhere(seed):
 
 def load_expert_trajectories(motions: str | Path, motions_root: str | Path, device: str, sequence_length: int) -> TrajectoryBuffer:
     with open(motions, "r") as txtf:
-        h5files = [el.strip().replace(" ", "") for el in txtf.readlines()]
+        h5files = [el.strip() for el in txtf.readlines()]
     episodes = []
     for h5 in tqdm(h5files, leave=False):
         h5 = canonicalize(h5, base_path=motions_root)
