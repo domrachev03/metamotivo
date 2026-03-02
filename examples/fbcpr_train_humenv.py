@@ -121,6 +121,10 @@ class TrainConfig:
     tracking_eval_motions: str | None = None
     tracking_eval_motions_root: str | None = None
 
+    # buffer saving for offline inference
+    save_buffer: bool = False
+    save_buffer_size: int = 200_000
+
     def __post_init__(self):
         if self.reward_eval_tasks is None:
             # this is just a subset of the tasks available in humenv
@@ -180,6 +184,14 @@ class Workspace:
             json.dump(dataclasses.asdict(self.cfg), f, indent=4)
 
         self.manager = None
+
+    def _save_inference_buffer(self, train_buffer):
+        """Save a subset of the replay buffer for offline inference."""
+        buf_size = min(self.cfg.save_buffer_size, len(train_buffer))
+        buf_data = train_buffer.sample(buf_size)
+        buf_path = self.work_dir / "checkpoint" / "inference_buffer.pt"
+        torch.save(buf_data, str(buf_path))
+        print(f"  Saved inference buffer ({buf_size} samples) to {buf_path}")
 
     def train(self):
         self.start_time = time.time()
@@ -320,11 +332,15 @@ class Workspace:
 
             if t % self.cfg.checkpoint_every_steps == 0:
                 self.agent.save(str(self.work_dir / "checkpoint"))
+                if self.cfg.save_buffer and len(replay_buffer["train"]) > 0:
+                    self._save_inference_buffer(replay_buffer["train"])
             progb.update(self.cfg.online_parallel_envs)
             td = new_td
             done = new_done
             info = new_info
         self.agent.save(str(self.work_dir / "checkpoint"))
+        if self.cfg.save_buffer and len(replay_buffer["train"]) > 0:
+            self._save_inference_buffer(replay_buffer["train"])
         if mp_info is not None:
             mp_info["manager"].shutdown()
 
