@@ -383,8 +383,8 @@ class Workspace:
                     m_dict[f"{task}/return"] = np.mean(reward_metrics[task]["reward"])
                     m_dict[f"{task}/return#std"] = np.std(reward_metrics[task]["reward"])
                     avg_return.append(reward_metrics[task]["reward"])
-                m_dict["reward/return"] = np.mean(avg_return)
-                m_dict["reward/return#std"] = np.std(avg_return)
+                m_dict["reward/return"] = np.mean(np.concatenate(avg_return))
+                m_dict["reward/return#std"] = np.std(np.concatenate(avg_return))
                 m_dict["reward/time"] = duration
                 wandb.log(
                     {f"eval/reward/{k}": v for k, v in m_dict.items()},
