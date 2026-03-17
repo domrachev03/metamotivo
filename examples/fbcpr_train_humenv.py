@@ -125,6 +125,9 @@ class TrainConfig:
     save_buffer: bool = False
     save_buffer_size: int = 200_000
 
+    # vectorization mode: "async" (true parallel, needs more RAM) or "sync" (sequential, less RAM)
+    vectorization_mode: str = "async"
+
     def __post_init__(self):
         if self.reward_eval_tasks is None:
             # this is just a subset of the tasks available in humenv
@@ -204,7 +207,7 @@ class Workspace:
         print("Creating the training environment")
         train_env, mp_info = make_humenv(
             num_envs=self.cfg.online_parallel_envs,
-            # vectorization_mode="sync",
+            vectorization_mode=self.cfg.vectorization_mode,
             wrappers=[
                 gymnasium.wrappers.FlattenObservation,
                 lambda env: TimeAwareObservation(env, flatten=False),
@@ -341,7 +344,7 @@ class Workspace:
         self.agent.save(str(self.work_dir / "checkpoint"))
         if self.cfg.save_buffer and len(replay_buffer["train"]) > 0:
             self._save_inference_buffer(replay_buffer["train"])
-        if mp_info is not None:
+        if mp_info is not None and mp_info.get("manager") is not None:
             mp_info["manager"].shutdown()
 
     def eval(self, t, replay_buffer):
@@ -393,36 +396,38 @@ class Workspace:
         # ---------------------------------------------------------------
         # Tracking evaluation
         # ---------------------------------------------------------------
-        eval_agent = TrackingWrapper(model=self.agent._model)
-        tracking_eval = TrackingEvaluation(
-            motions=self.cfg.tracking_eval_motions,
-            motion_base_path=self.cfg.tracking_eval_motions_root,
-            env_kwargs={
-                "state_init": "Default",
-                "humanoid_type": self.cfg.humanoid_type,
-            },
-            num_envs=self.cfg.tracking_eval_num_envs,
-        )
-        start_t = time.time()
-        print(f"Tracking started at {time.ctime(start_t)}", flush=True)
-        tracking_metrics = tracking_eval.run(agent=eval_agent)
-        duration = time.time() - start_t
-        print(f"Tracking eval time: {duration}")
-        if self.cfg.use_wandb:
-            aggregate, m_dict = collections.defaultdict(list), {}
-            for _, metr in tracking_metrics.items():
-                for k, v in metr.items():
-                    if isinstance(v, numbers.Number):
-                        aggregate[k].append(v)
-            for k, v in aggregate.items():
-                m_dict[k] = np.mean(v)
-                m_dict[f"{k}#std"] = np.std(v)
-            m_dict["time"] = duration
-
-            wandb.log(
-                {f"eval/tracking/{k}": v for k, v in m_dict.items()},
-                step=t,
+        tracking_metrics = {}
+        if self.cfg.tracking_eval_motions is not None:
+            eval_agent = TrackingWrapper(model=self.agent._model)
+            tracking_eval = TrackingEvaluation(
+                motions=self.cfg.tracking_eval_motions,
+                motion_base_path=self.cfg.tracking_eval_motions_root,
+                env_kwargs={
+                    "state_init": "Default",
+                    "humanoid_type": self.cfg.humanoid_type,
+                },
+                num_envs=self.cfg.tracking_eval_num_envs,
             )
+            start_t = time.time()
+            print(f"Tracking started at {time.ctime(start_t)}", flush=True)
+            tracking_metrics = tracking_eval.run(agent=eval_agent)
+            duration = time.time() - start_t
+            print(f"Tracking eval time: {duration}")
+            if self.cfg.use_wandb:
+                aggregate, m_dict = collections.defaultdict(list), {}
+                for _, metr in tracking_metrics.items():
+                    for k, v in metr.items():
+                        if isinstance(v, numbers.Number):
+                            aggregate[k].append(v)
+                for k, v in aggregate.items():
+                    m_dict[k] = np.mean(v)
+                    m_dict[f"{k}#std"] = np.std(v)
+                m_dict["time"] = duration
+
+                wandb.log(
+                    {f"eval/tracking/{k}": v for k, v in m_dict.items()},
+                    step=t,
+                )
         # ---------------------------------------------------------------
         # this is important, move back the agent to cuda and
         # restart the training
