@@ -128,6 +128,17 @@ class TrainConfig:
     # vectorization mode: "async" (true parallel, needs more RAM) or "sync" (sequential, less RAM)
     vectorization_mode: str = "async"
 
+    # observation clipping: clip obs to [-obs_clip, obs_clip] to prevent
+    # BatchNorm running stats corruption from simulation instability
+    obs_clip: float = 10.0
+
+    # gradient clipping: override agent's clip_grad_norm (0 = use agent default)
+    grad_clip_override: float = 1.0
+
+    # save numbered checkpoints (checkpoint_5000000/ etc.) in addition to
+    # overwriting checkpoint/ — protects against late-stage divergence
+    keep_all_checkpoints: bool = True
+
     def __post_init__(self):
         if self.reward_eval_tasks is None:
             # this is just a subset of the tasks available in humenv
@@ -171,6 +182,9 @@ class Workspace:
         self.work_dir.mkdir(exist_ok=True, parents=True)
 
         set_seed_everywhere(self.cfg.seed)
+        # Apply gradient clipping override if set
+        if self.cfg.grad_clip_override > 0:
+            agent_cfg.train.clip_grad_norm = self.cfg.grad_clip_override
         self.agent = FBcprAgent(**dataclasses.asdict(agent_cfg))
 
         if self.cfg.use_wandb:
@@ -272,6 +286,9 @@ class Workspace:
 
             with torch.no_grad():
                 obs = torch.tensor(td["obs"], dtype=torch.float32, device=self.agent.device)
+                # Clip observations to prevent BatchNorm corruption from sim instability
+                if self.cfg.obs_clip > 0:
+                    obs = obs.clamp(-self.cfg.obs_clip, self.cfg.obs_clip)
                 step_count = torch.tensor(td["time"], device=self.agent.device)
                 context = self.agent.maybe_update_rollout_context(z=context, step_count=step_count)
                 if t < self.cfg.num_seed_steps:
@@ -281,6 +298,16 @@ class Workspace:
                     action = self.agent.act(obs=obs, z=context, mean=False).cpu().detach().numpy()
             new_td, reward, terminated, truncated, new_info = train_env.step(action)
             real_next_obs = new_td["obs"].astype(np.float32).copy()
+            # Clip next_obs and skip NaN/Inf transitions
+            if self.cfg.obs_clip > 0:
+                real_next_obs = np.clip(real_next_obs, -self.cfg.obs_clip, self.cfg.obs_clip)
+            if np.any(~np.isfinite(real_next_obs)) or np.any(~np.isfinite(obs.cpu().numpy())):
+                # Discard this entire batch — simulation produced invalid state
+                td = new_td
+                done = np.logical_or(terminated.ravel(), truncated.ravel())
+                info = new_info
+                progb.update(self.cfg.online_parallel_envs)
+                continue
             new_done = np.logical_or(terminated.ravel(), truncated.ravel())
 
             if Version(gymnasium.__version__) >= Version("1.0"):
@@ -337,6 +364,14 @@ class Workspace:
                 self.agent.save(str(self.work_dir / "checkpoint"))
                 if self.cfg.save_buffer and len(replay_buffer["train"]) > 0:
                     self._save_inference_buffer(replay_buffer["train"])
+                # Save numbered checkpoint to protect against late-stage divergence
+                if self.cfg.keep_all_checkpoints and t > 0:
+                    numbered_dir = self.work_dir / f"checkpoint_{t}"
+                    self.agent.save(str(numbered_dir))
+                    if self.cfg.save_buffer and len(replay_buffer["train"]) > 0:
+                        buf_size = min(self.cfg.save_buffer_size, len(replay_buffer["train"]))
+                        buf_data = replay_buffer["train"].sample(buf_size)
+                        torch.save(buf_data, str(numbered_dir / "inference_buffer.pt"))
             progb.update(self.cfg.online_parallel_envs)
             td = new_td
             done = new_done
