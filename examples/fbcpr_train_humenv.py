@@ -132,8 +132,10 @@ class TrainConfig:
     # BatchNorm running stats corruption from simulation instability
     obs_clip: float = 10.0
 
-    # gradient clipping: override agent's clip_grad_norm (0 = use agent default)
-    grad_clip_override: float = 1.0
+    # gradient clipping: override agent's clip_grad_norm (0 = disabled, use agent default)
+    # WARNING: FB-CPR loss is ~-11500 and needs large gradients. Clipping to 1.0
+    # throttles FB learning and causes Q-value divergence. Leave at 0 unless debugging.
+    grad_clip_override: float = 0.0
 
     # save numbered checkpoints (checkpoint_5000000/ etc.) in addition to
     # overwriting checkpoint/ — protects against late-stage divergence
