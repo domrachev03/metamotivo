@@ -128,9 +128,11 @@ class TrainConfig:
     # vectorization mode: "async" (true parallel, needs more RAM) or "sync" (sequential, less RAM)
     vectorization_mode: str = "async"
 
-    # observation clipping: clip obs to [-obs_clip, obs_clip] to prevent
-    # BatchNorm running stats corruption from simulation instability
-    obs_clip: float = 10.0
+    # observation clipping: clip obs to [-obs_clip, obs_clip].
+    # WARNING: body velocities naturally reach ±28, so 10.0 destroys velocity
+    # information. Use 0 (disabled) and rely on NaN/Inf skip instead.
+    # Only set >0 for extreme outlier protection (e.g., 100.0).
+    obs_clip: float = 0.0
 
     # gradient clipping: override agent's clip_grad_norm (0 = disabled, use agent default)
     # WARNING: FB-CPR loss is ~-11500 and needs large gradients. Clipping to 1.0
